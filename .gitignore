@@ -1,0 +1,8 @@
+
+.qmake.stash
+
+*.o
+moc_*.cpp
+qrc_*.cpp
+qrcode-animation
+Makefile*

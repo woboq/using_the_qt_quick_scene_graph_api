@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>main.qml</file>
+        <file>QRCode.qml</file>
+    </qresource>
+</RCC>
