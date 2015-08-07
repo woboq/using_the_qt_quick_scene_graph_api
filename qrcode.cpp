@@ -5,46 +5,156 @@
 #include <QSGSimpleRectNode>
 #include <qrencode.h>
 
-static float smoothstep(float edge0, float edge1, float x) {
-  float t =
-    std::min(1.0f,
-    std::max(0.0f,
-      (x - edge0) / (edge1 - edge0)));
-  return t * t * (3.0f - 2.0f * t);
+namespace {
+
+// This is the C++ structure used to write the memory layout
+// matching our vertex attributes.
+struct QRCodeVertex {
+  float x, y;
+  float surroundCount;
+};
+
+// Ultimately ends up in glVertexAttribPointer.
+// This specify how our vertex data should be mapped to GLSL
+// attribute variable.
+// Similar to QSGGeometry::defaultAttributes_TexturedPoint2D()
+static const QSGGeometry::AttributeSet &qrCodeVertexAttributes()
+{
+  static QSGGeometry::Attribute data[] = {
+    QSGGeometry::Attribute::create(0, 2, GL_FLOAT, true),
+    QSGGeometry::Attribute::create(1, 1, GL_FLOAT)
+  };
+  static QSGGeometry::AttributeSet attrs =
+    { 2, sizeof(float) * 3, data };
+  return attrs;
 }
 
-class QRDotNode : public QSGNode {
+
+class QRCodeMaterialShader : public QSGMaterialShader
+{
 public:
-  QRDotNode(const QRectF &rect, int surroundCount)
-  : m_translateNode(new QSGTransformNode)
-  , m_opacityNode(new QSGOpacityNode)
-  , m_surroundCount(surroundCount)
+  char const *const *attributeNames() const override
   {
-    auto geometryNode = new QSGSimpleRectNode(rect, Qt::red);
-    m_opacityNode->appendChildNode(geometryNode);
-    m_translateNode->appendChildNode(m_opacityNode);
-    // This takes ownership of the child node tree
-    appendChildNode(m_translateNode);
+    // Maps each QSGGeometry::Attribute to a variable name.
+    static char const *const names[] = {
+      "position",
+      "surroundCount",
+      0 };
+    return names;
   }
 
-  void setRevealProgress(float revealProgress)
-  {
-    float start = 1.0 - smoothstep(0.0, 30, m_surroundCount);
-    float end = 1.0 - smoothstep(0.0, 30, m_surroundCount + 5.0);
-    float dotProgress = smoothstep(start, end, revealProgress);
-    QMatrix4x4 translateMatrix;
-    translateMatrix.translate(
-      0, 25 * 0.5 * dotProgress * dotProgress
-      );
-    m_translateNode->setMatrix(translateMatrix);
-    m_opacityNode->setOpacity(1 - dotProgress);
+  const char *vertexShader() const override {
+    return QT_STRINGIFY(
+      attribute highp vec4 position;
+      attribute mediump float surroundCount;
+
+      uniform highp mat4 matrix;
+      uniform mediump float revealProgress;
+
+      varying lowp float dotOpacity;
+
+      void main() {
+        float mediump start = 1.0 - smoothstep(
+          0.0, 30.0, surroundCount);
+        float mediump end = 1.0 - smoothstep(
+          0.0, 30.0, surroundCount + 5.0);
+        float lowp dotProgress = smoothstep(
+          start, end, revealProgress);
+        highp vec4 translatedPosition = position;
+        translatedPosition.y +=
+          dotProgress * dotProgress * 25.0 * 0.5;
+
+        dotOpacity = 1.0 - dotProgress;
+        gl_Position = matrix * translatedPosition;
+      });
   }
+
+  const char *fragmentShader() const override {
+    return QT_STRINGIFY(
+      varying lowp float dotOpacity;
+      uniform lowp float itemOpacity;
+
+      void main() {
+        gl_FragColor =
+          vec4(0.0, 0.0, 0.0, 1.0) * dotOpacity * itemOpacity;
+      });
+  }
+
+  void initialize() override
+  {
+    QSGMaterialShader::initialize();
+    m_id_matrix =
+      program()->uniformLocation("matrix");
+    m_id_itemOpacity =
+      program()->uniformLocation("itemOpacity");
+    m_id_revealProgress =
+      program()->uniformLocation("revealProgress");
+  }
+
+  // This is the most important method
+  void updateState(const RenderState &state,
+    QSGMaterial *newMaterial,
+    QSGMaterial *oldMaterial) override;
 
 private:
-  QSGTransformNode *m_translateNode;
-  QSGOpacityNode *m_opacityNode;
-  int m_surroundCount;
+  int m_id_matrix;
+  int m_id_itemOpacity;
+  int m_id_revealProgress;
 };
+
+
+class QRCodeMaterial : public QSGMaterial
+{
+public:
+  QRCodeMaterial() {
+    // We will output transparent fragments,
+    // this could be turned off when revealProgress == 1
+    setFlag(QSGMaterial::Blending);
+    // The y translation we do in the vertex shader relies on
+    // vertices using the QR code coordinate system. This tells
+    // the scene graph not to merge this batch by flatening the
+    // transforms to an arbitrary root.
+    setFlag(QSGMaterial::RequiresFullMatrix);
+  }
+
+  QSGMaterialType *type() const {
+    static QSGMaterialType type;
+    return &type;
+  }
+  QSGMaterialShader *createShader() const {
+    return new QRCodeMaterialShader;
+  }
+  int compare(const QSGMaterial *other) const {
+    return revealProgress !=
+    static_cast<const QRCodeMaterial*>(other)->revealProgress;
+  }
+
+  // Our material states to be used by our QSGMaterialShader
+  float revealProgress = 0;
+};
+
+
+void QRCodeMaterialShader::updateState(const RenderState &state,
+  QSGMaterial *newMaterial,
+  QSGMaterial *)
+{
+  // Set uniforms values managed by the scene graph itself
+  Q_ASSERT(program()->isLinked());
+  if (state.isMatrixDirty())
+    program()->setUniformValue(m_id_matrix,
+      state.combinedMatrix());
+  if (state.isOpacityDirty())
+    program()->setUniformValue(m_id_itemOpacity,
+      state.opacity());
+
+  // Set our own material uniform values
+  program()->setUniformValue(
+    m_id_revealProgress,
+    static_cast<QRCodeMaterial*>(newMaterial)->revealProgress);
+}
+
+} // namespace
+
 
 QRCodeItem::QRCodeItem()
 {
@@ -78,32 +188,67 @@ QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode,
     // Either this is the first run or
     // the scene graph destroyed our paint node
     rootScaleNode = new QSGTransformNode;
-    rootScaleNode->appendChildNode(new QSGSimpleRectNode(QRectF(), Qt::white));
-    rootScaleNode->appendChildNode(new QSGNode);
+    rootScaleNode->appendChildNode(
+      new QSGSimpleRectNode(QRectF(), Qt::white));
+    auto geometryNode = new QSGGeometryNode;
+    geometryNode->setMaterial(new QRCodeMaterial);
+    geometryNode->setFlag(QSGNode::OwnsMaterial);
+    rootScaleNode->appendChildNode(geometryNode);
   }
   auto bgNode = static_cast<QSGSimpleRectNode *>(
     rootScaleNode->firstChild());
-  auto dotContainer = rootScaleNode->lastChild();
+  auto geometryNode = static_cast<QSGGeometryNode *>(
+    rootScaleNode->lastChild());
+  auto qrCodeMaterial = static_cast<QRCodeMaterial *>(
+    geometryNode->material());
 
+  // This is unexpensive, no need for a m_revealProgressDirty
+  qrCodeMaterial->revealProgress = m_revealProgress;
+  // IMPORTANT: markDirty always needs to be
+  // called manually when an existing material changes
+  geometryNode->markDirty(QSGNode::DirtyMaterial);
+
+  // Now check if the text changed
   if (m_textDirty) {
     m_textDirty = false;
-
-    // Delete all QRDotNodes, children of dotContainer.
-    while (auto dot = dotContainer->firstChild())
-      delete dot;
 
     const Code code = getQRCodeData(m_text).value<Code>();
     int contentWidth = code.width + 2;
     bgNode->setRect(0, 0, contentWidth, contentWidth);
 
+    auto geometry = new QSGGeometry(
+      qrCodeVertexAttributes(),
+      code.dots.size() * 6);
+    // The default GL_TRIANGLE_STRIP wouldn't allow
+    // us to have separate non-touching squares
+    geometry->setDrawingMode(GL_TRIANGLES);
+    geometryNode->setGeometry(geometry);
+    geometryNode->setFlag(QSGNode::OwnsGeometry);
+
+    // Use the QRCodeVertex struct as a view to modify
+    // our vertex data buffer
+    auto vertexPointer =
+      reinterpret_cast<QRCodeVertex*>(geometry->vertexData());
+
     for (int i = 0; i < code.dots.size(); ++i) {
       CodeDot dot = code.dots.at(i).value<CodeDot>();
       // + 1 dot offset for the empty edge
-      dotContainer->appendChildNode(
-        new QRDotNode(
-          QRectF(dot.x + 1, dot.y + 1, 1, 1),
-          dot.surroundCount)
-        );
+      float posX = dot.x + 1;
+      float posY = dot.y + 1;
+      // Top-left triangle
+      *vertexPointer++ = QRCodeVertex{
+        posX, posY, float(dot.surroundCount)};
+      *vertexPointer++ = QRCodeVertex{
+        posX+1, posY, float(dot.surroundCount)};
+      *vertexPointer++ = QRCodeVertex{
+        posX, posY+1, float(dot.surroundCount)};
+      // Bottom-right triangle
+      *vertexPointer++ = QRCodeVertex{
+        posX, posY+1, float(dot.surroundCount)};
+      *vertexPointer++ = QRCodeVertex{
+        posX+1, posY, float(dot.surroundCount)};
+      *vertexPointer++ = QRCodeVertex{
+        posX+1, posY+1, float(dot.surroundCount)};
     }
 
     // We put geometries in a coordinate system where all
@@ -114,10 +259,6 @@ QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode,
     scaleMatrix.scale(width() / contentWidth);
     rootScaleNode->setMatrix(scaleMatrix);
   }
-
-  for (auto dot = static_cast<QRDotNode *>(dotContainer->firstChild())
-    ; dot; dot = static_cast<QRDotNode *>(dot->nextSibling()))
-    dot->setRevealProgress(m_revealProgress);
 
   return rootScaleNode;
 }
