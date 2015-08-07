@@ -1,8 +1,25 @@
 #include "qrcode.h"
 
+#include <QSGGeometryNode>
+#include <QSGSimpleMaterialShader>
+#include <QSGSimpleRectNode>
 #include <qrencode.h>
 
-QVariant QRCodeHelper::getQRCodeData(const QString &text)
+
+QRCodeItem::QRCodeItem()
+{
+  setFlag(ItemHasContents);
+}
+
+QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
+{
+  auto paintNode = static_cast<QSGSimpleRectNode *>(oldNode);
+  if (!paintNode)
+    paintNode = new QSGSimpleRectNode(boundingRect(), Qt::red);
+  return paintNode;
+}
+
+QVariant QRCodeItem::getQRCodeData(const QString &text)
 {
   QRcode *qrencodeCode = QRcode_encodeString(
     text.toUtf8().constData(), 1, QR_ECLEVEL_L, QR_MODE_8, true);

@@ -5,7 +5,7 @@
 
 int main(int argc, char **argv)
 {
-  qmlRegisterType<QRCodeHelper>("main", 1, 0, "QRCodeHelper");
+  qmlRegisterType<QRCodeItem>("main", 1, 0, "QRCodeItem");
   QGuiApplication app{argc, argv};
 
   QQuickView view;

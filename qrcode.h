@@ -2,6 +2,7 @@
 #define QRCODE_H
 
 #include <QObject>
+#include <QQuickItem>
 #include <QVariant>
 
 struct CodeDot {
@@ -23,12 +24,16 @@ struct Code {
   Q_GADGET
 };
 
-
-class QRCodeHelper : public QObject
-{
+class QRCodeItem : public QQuickItem {
   Q_OBJECT
 public:
-  Q_INVOKABLE static QVariant getQRCodeData(const QString &text);
+  QRCodeItem();
+
+protected:
+  QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
+
+private:
+  static QVariant getQRCodeData(const QString &text);
 };
 
 #endif // QRCODE_H
