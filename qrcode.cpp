@@ -218,6 +218,7 @@ QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode,
 
     auto geometry = new QSGGeometry(
       qrCodeVertexAttributes(),
+      code.dots.size() * 4,
       code.dots.size() * 6);
     // The default GL_TRIANGLE_STRIP wouldn't allow
     // us to have separate non-touching squares
@@ -229,26 +230,33 @@ QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode,
     // our vertex data buffer
     auto vertexPointer =
       reinterpret_cast<QRCodeVertex*>(geometry->vertexData());
+    auto indexPointer = geometry->indexDataAsUShort();
 
     for (int i = 0; i < code.dots.size(); ++i) {
       CodeDot dot = code.dots.at(i).value<CodeDot>();
       // + 1 dot offset for the empty edge
       float posX = dot.x + 1;
       float posY = dot.y + 1;
-      // Top-left triangle
-      *vertexPointer++ = QRCodeVertex{
+      quint16 startIndex = i * 4;
+
+      // Corners
+      vertexPointer[startIndex] = QRCodeVertex{
         posX, posY, float(dot.surroundCount)};
-      *vertexPointer++ = QRCodeVertex{
+      vertexPointer[startIndex+1] = QRCodeVertex{
         posX+1, posY, float(dot.surroundCount)};
-      *vertexPointer++ = QRCodeVertex{
+      vertexPointer[startIndex+2] = QRCodeVertex{
         posX, posY+1, float(dot.surroundCount)};
-      // Bottom-right triangle
-      *vertexPointer++ = QRCodeVertex{
-        posX, posY+1, float(dot.surroundCount)};
-      *vertexPointer++ = QRCodeVertex{
-        posX+1, posY, float(dot.surroundCount)};
-      *vertexPointer++ = QRCodeVertex{
+      vertexPointer[startIndex+3] = QRCodeVertex{
         posX+1, posY+1, float(dot.surroundCount)};
+
+      // Top-left triangle
+      *indexPointer++ = startIndex;
+      *indexPointer++ = startIndex+1;
+      *indexPointer++ = startIndex+2;
+      // Bottom-right triangle
+      *indexPointer++ = startIndex+2;
+      *indexPointer++ = startIndex+1;
+      *indexPointer++ = startIndex+3;
     }
 
     // We put geometries in a coordinate system where all
