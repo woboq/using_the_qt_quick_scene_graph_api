@@ -17,7 +17,7 @@ Item {
       delegate: QRCodeItem {
         width: grid.width / grid.columns
         height: grid.height / grid.rows
-        // text: "http://woboq.com/software-services.html"
+        text: "http://woboq.com/software-services.html"
         // revealProgress: slider.value
       }
     }        

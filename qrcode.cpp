@@ -11,12 +11,50 @@ QRCodeItem::QRCodeItem()
   setFlag(ItemHasContents);
 }
 
-QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
+void QRCodeItem::setText(const QString &text)
 {
-  auto paintNode = static_cast<QSGSimpleRectNode *>(oldNode);
-  if (!paintNode)
-    paintNode = new QSGSimpleRectNode(boundingRect(), Qt::red);
-  return paintNode;
+  if (m_text == text)
+    return;
+  m_text = text;
+  emit textChanged();
+  update();
+}
+
+QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode,
+  UpdatePaintNodeData *)
+{
+  auto rootScaleNode = static_cast<QSGTransformNode *>(oldNode);
+  if (!rootScaleNode && !m_text.isEmpty()) {
+    rootScaleNode = new QSGTransformNode;
+
+    const Code code = getQRCodeData(m_text).value<Code>();
+    int contentWidth = code.width + 2;
+    rootScaleNode->appendChildNode(
+      new QSGSimpleRectNode(
+        QRectF(0, 0, contentWidth, contentWidth),
+        Qt::white)
+      );
+
+    for (int i = 0; i < code.dots.size(); ++i) {
+      CodeDot dot = code.dots.at(i).value<CodeDot>();
+      // + 1 dot offset for the empty edge
+      rootScaleNode->appendChildNode(
+        new QSGSimpleRectNode(
+          QRectF(dot.x + 1, dot.y + 1, 1, 1),
+          Qt::red)
+        );
+    }
+
+    // We put geometries in a coordinate system where all
+    // points are 1 unit wide. Scale the whole QR code so
+    // that it fills our item's width. We should normally
+    // also consider its height.
+    QMatrix4x4 scaleMatrix;
+    scaleMatrix.scale(width() / contentWidth);
+    rootScaleNode->setMatrix(scaleMatrix);
+  }
+
+  return rootScaleNode;
 }
 
 QVariant QRCodeItem::getQRCodeData(const QString &text)

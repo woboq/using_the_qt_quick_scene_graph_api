@@ -26,14 +26,21 @@ struct Code {
 
 class QRCodeItem : public QQuickItem {
   Q_OBJECT
+  Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
 public:
   QRCodeItem();
+  QString text() const { return m_text; }
+  void setText(const QString &text);
+
+  signals:
+  void textChanged();
 
 protected:
   QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
 
 private:
   static QVariant getQRCodeData(const QString &text);
+  QString m_text;
 };
 
 #endif // QRCODE_H
