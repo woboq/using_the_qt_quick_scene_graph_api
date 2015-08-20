@@ -18,7 +18,7 @@ Item {
         width: grid.width / grid.columns
         height: grid.height / grid.rows
         text: "http://woboq.com/software-services.html"
-        // revealProgress: slider.value
+        revealProgress: slider.value
       }
     }        
   }

@@ -5,6 +5,46 @@
 #include <QSGSimpleRectNode>
 #include <qrencode.h>
 
+static float smoothstep(float edge0, float edge1, float x) {
+  float t =
+    std::min(1.0f,
+    std::max(0.0f,
+      (x - edge0) / (edge1 - edge0)));
+  return t * t * (3.0f - 2.0f * t);
+}
+
+class QRDotNode : public QSGNode {
+public:
+  QRDotNode(const QRectF &rect, int surroundCount)
+  : m_translateNode(new QSGTransformNode)
+  , m_opacityNode(new QSGOpacityNode)
+  , m_surroundCount(surroundCount)
+  {
+    auto geometryNode = new QSGSimpleRectNode(rect, Qt::red);
+    m_opacityNode->appendChildNode(geometryNode);
+    m_translateNode->appendChildNode(m_opacityNode);
+    // This takes ownership of the child node tree
+    appendChildNode(m_translateNode);
+  }
+
+  void setRevealProgress(float revealProgress)
+  {
+    float start = 1.0 - smoothstep(0.0, 30, m_surroundCount);
+    float end = 1.0 - smoothstep(0.0, 30, m_surroundCount + 5.0);
+    float dotProgress = smoothstep(start, end, revealProgress);
+    QMatrix4x4 translateMatrix;
+    translateMatrix.translate(
+      0, 25 * 0.5 * dotProgress * dotProgress
+      );
+    m_translateNode->setMatrix(translateMatrix);
+    m_opacityNode->setOpacity(1 - dotProgress);
+  }
+
+private:
+  QSGTransformNode *m_translateNode;
+  QSGOpacityNode *m_opacityNode;
+  int m_surroundCount;
+};
 
 QRCodeItem::QRCodeItem()
 {
@@ -17,6 +57,16 @@ void QRCodeItem::setText(const QString &text)
     return;
   m_text = text;
   emit textChanged();
+  m_textDirty = true;
+  update();
+}
+
+void QRCodeItem::setRevealProgress(float revealProgress)
+{
+  if (m_revealProgress == revealProgress)
+    return;
+  m_revealProgress = revealProgress;
+  emit revealProgressChanged();
   update();
 }
 
@@ -24,24 +74,35 @@ QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode,
   UpdatePaintNodeData *)
 {
   auto rootScaleNode = static_cast<QSGTransformNode *>(oldNode);
-  if (!rootScaleNode && !m_text.isEmpty()) {
+  if (!rootScaleNode) {
+    // Either this is the first run or
+    // the scene graph destroyed our paint node
     rootScaleNode = new QSGTransformNode;
+    rootScaleNode->appendChildNode(new QSGSimpleRectNode(QRectF(), Qt::white));
+    rootScaleNode->appendChildNode(new QSGNode);
+  }
+  auto bgNode = static_cast<QSGSimpleRectNode *>(
+    rootScaleNode->firstChild());
+  auto dotContainer = rootScaleNode->lastChild();
+
+  if (m_textDirty) {
+    m_textDirty = false;
+
+    // Delete all QRDotNodes, children of dotContainer.
+    while (auto dot = dotContainer->firstChild())
+      delete dot;
 
     const Code code = getQRCodeData(m_text).value<Code>();
     int contentWidth = code.width + 2;
-    rootScaleNode->appendChildNode(
-      new QSGSimpleRectNode(
-        QRectF(0, 0, contentWidth, contentWidth),
-        Qt::white)
-      );
+    bgNode->setRect(0, 0, contentWidth, contentWidth);
 
     for (int i = 0; i < code.dots.size(); ++i) {
       CodeDot dot = code.dots.at(i).value<CodeDot>();
       // + 1 dot offset for the empty edge
-      rootScaleNode->appendChildNode(
-        new QSGSimpleRectNode(
+      dotContainer->appendChildNode(
+        new QRDotNode(
           QRectF(dot.x + 1, dot.y + 1, 1, 1),
-          Qt::red)
+          dot.surroundCount)
         );
     }
 
@@ -53,6 +114,10 @@ QSGNode *QRCodeItem::updatePaintNode(QSGNode *oldNode,
     scaleMatrix.scale(width() / contentWidth);
     rootScaleNode->setMatrix(scaleMatrix);
   }
+
+  for (auto dot = static_cast<QRDotNode *>(dotContainer->firstChild())
+    ; dot; dot = static_cast<QRDotNode *>(dot->nextSibling()))
+    dot->setRevealProgress(m_revealProgress);
 
   return rootScaleNode;
 }

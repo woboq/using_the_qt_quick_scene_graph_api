@@ -27,13 +27,17 @@ struct Code {
 class QRCodeItem : public QQuickItem {
   Q_OBJECT
   Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
+  Q_PROPERTY(float revealProgress READ revealProgress WRITE setRevealProgress NOTIFY revealProgressChanged)
 public:
   QRCodeItem();
   QString text() const { return m_text; }
   void setText(const QString &text);
+  float revealProgress() const { return m_revealProgress; }
+  void setRevealProgress(float revealProgress);
 
   signals:
   void textChanged();
+  void revealProgressChanged();
 
 protected:
   QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -41,6 +45,9 @@ protected:
 private:
   static QVariant getQRCodeData(const QString &text);
   QString m_text;
+  float m_revealProgress = 0;
+
+  bool m_textDirty = true;
 };
 
 #endif // QRCODE_H
